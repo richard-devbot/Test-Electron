@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WebView Test Scenario Generator</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+    }
+    #webview-container {
+      width: 100%;
+      height: 500px;
+      margin-top: 20px;
+      border: 1px solid #ccc;
+    }
+    webview {
+      width: 100%;
+      height: 100%;
+    }
+    #selected-elements {
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <h1>WebView Test Scenario Generator with Gemini</h1>
+
+  <input type="text" id="urlInput" placeholder="Enter URL" style="width: 80%;" />
+  <button id="loadUrlBtn">Select Elements</button>
+
+  <div id="webview-container">
+    <webview id="webview" style="display:none;"></webview>
+  </div>
+
+  <div id="selected-elements">
+    <h3>Selected Elements (JSON):</h3>
+    <pre id="elements-output"></pre>
+    <button id="generateScenarioBtn">Generate Test Scenarios</button>
+  </div>
+
+  <div id="test-scenarios">
+    <h3>Generated Test Scenarios:</h3>
+    <pre id="scenarios-output"></pre>
+  </div>
+
+  <script>
+    const { ipcRenderer } = require('electron');
+
+    const webview = document.getElementById('webview');
+    const urlInput = document.getElementById('urlInput');
+    const loadUrlBtn = document.getElementById('loadUrlBtn');
+    const elementsOutput = document.getElementById('elements-output');
+    const generateScenarioBtn = document.getElementById('generateScenarioBtn');
+    const scenariosOutput = document.getElementById('scenarios-output');
+
+    let selectedElements = [];
+
+    loadUrlBtn.addEventListener('click', () => {
+      const url = urlInput.value;
+      if (url) {
+        webview.style.display = 'block';
+        webview.src = url;
+      }
+    });
+
+    webview.addEventListener('dom-ready', () => {
+      webview.executeJavaScript(`
+        var selectedElements = [];
+        document.body.addEventListener('click', function(event) {
+          event.preventDefault();
+          var element = event.target;
+          var elementInfo = {
+            tag: element.tagName,
+            id: element.id,
+            class: element.className,
+            text: element.textContent.trim().substring(0, 50)
+          };
+          var index = selectedElements.findIndex(e => e.id === elementInfo.id && e.tag === elementInfo.tag);
+          if (index > -1) {
+            element.style.border = '';
+            selectedElements.splice(index, 1);
+          } else {
+            element.style.border = '2px solid red';
+            selectedElements.push(elementInfo);
+          }
+          localStorage.setItem('selectedElements', JSON.stringify(selectedElements));
+        }, true);
+      `);
+    });
+
+    // Fetch selected elements when the user clicks the button
+    generateScenarioBtn.addEventListener('click', () => {
+      webview.executeJavaScript('return localStorage.getItem("selectedElements");', (result) => {
+        selectedElements = JSON.parse(result) || [];
+        elementsOutput.textContent = JSON.stringify(selectedElements, null, 2);
+
+        // Send the elements to backend (Python Gemini integration) via API
+        fetch('http://localhost:5000/generate_scenarios', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ elements: selectedElements })
+        })
+        .then(response => response.json())
+        .then(data => {
+          scenariosOutput.textContent = JSON.stringify(data.scenarios, null, 2);
+        });
+      });
+    });
+  </script>
+</body>
+</html>
